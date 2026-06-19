@@ -118,6 +118,8 @@ class VehicleFrameAnalyzer(
                     imageHeight = max(imageProxy.height, 1),
                     rotationDegrees = imageProxy.imageInfo.rotationDegrees,
                     timestamp = imageProxy.imageInfo.timestamp / 1_000_000L,
+                    activeTrackCount = 0,
+                    totalTrackCount = 0,
                     trackedVehicles = emptyList(),
                 )
             )

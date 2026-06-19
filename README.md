@@ -26,7 +26,7 @@ Over time, those events can turn into points, streaks, and friendly competition.
 - [x] 2. Add a live camera preview.
 - [x] 3. Add frame analysis.
 - [x] 4. Add a car detector, probably TensorFlow Lite or ML Kit object detection.
-- [ ] 5. Add simple tracking and counters.
+- [x] 5. Add simple tracking and counters.
 - [ ] 6. Add an arcade-style overlay with effects like "combo" when passing multiple cars in a short time.
 - [ ] 7. Add a social feature to compare with friends.
 - [ ] 8. Collect data to help Ido.

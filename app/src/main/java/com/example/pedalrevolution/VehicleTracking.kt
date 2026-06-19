@@ -16,6 +16,8 @@ data class TrackedVehicleFrameResult(
     val imageHeight: Int,
     val rotationDegrees: Int,
     val timestamp: Long,
+    val activeTrackCount: Int,
+    val totalTrackCount: Int,
     val trackedVehicles: List<TrackedVehicle>,
 )
 
@@ -106,6 +108,8 @@ class VehicleTracker(
             imageHeight = frameResult.imageHeight,
             rotationDegrees = frameResult.rotationDegrees,
             timestamp = frameResult.timestamp,
+            activeTrackCount = tracks.size,
+            totalTrackCount = nextTrackId - 1,
             trackedVehicles = tracks.map { it.toTrackedVehicle() },
         )
     }
@@ -160,10 +164,7 @@ private class TrackState(
     }
 
     private fun area(): Float {
-        return max(
-            0f,
-            detection.bounds.width) * max(0f, detection.bounds.height
-            )
+        return max(0f, detection.bounds.width) * max(0f, detection.bounds.height)
     }
 }
 

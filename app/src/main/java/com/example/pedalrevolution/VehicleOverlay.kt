@@ -48,6 +48,30 @@ fun VehicleOverlay(
 
         val scaleX = size.width / frame.imageWidth.toFloat()
         val scaleY = size.height / frame.imageHeight.toFloat()
+        val statsLabel = "Active ${frame.activeTrackCount}  Seen ${frame.totalTrackCount}"
+        val statsLeft = 16.dp.toPx()
+        val statsTop = 16.dp.toPx()
+        val statsTextWidth = textPaint.measureText(statsLabel)
+        val statsTextHeight = textPaint.textSize
+        val statsRight = statsLeft + statsTextWidth + 24.dp.toPx()
+        val statsBottom = statsTop + statsTextHeight + 16.dp.toPx()
+
+        drawContext.canvas.nativeCanvas.drawRoundRect(
+            statsLeft,
+            statsTop,
+            statsRight,
+            statsBottom,
+            12.dp.toPx(),
+            12.dp.toPx(),
+            labelBackgroundPaint,
+        )
+
+        drawContext.canvas.nativeCanvas.drawText(
+            statsLabel,
+            statsLeft + 12.dp.toPx(),
+            statsBottom - 10.dp.toPx(),
+            textPaint,
+        )
 
         frame.trackedVehicles.forEach { vehicle ->
             val highlight = trackColor(vehicle.id)
