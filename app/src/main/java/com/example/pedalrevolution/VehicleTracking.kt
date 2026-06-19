@@ -1,13 +1,11 @@
 package com.example.pedalrevolution
 
-import android.graphics.RectF
+import androidx.compose.ui.geometry.Rect
 import kotlin.math.max
 
 data class TrackedVehicle(
     val id: Int,
-    val bounds: RectF,
-    val label: String,
-    val confidence: Float,
+    val detection: VehicleDetection,
     val area: Float,
     val lastTimestamp: Long,
     val areaHistory: List<Float>,
@@ -31,9 +29,8 @@ class VehicleTracker(
 
     fun update(frameResult: VehicleFrameResult): TrackedVehicleFrameResult {
         val detections = frameResult.detections
-        val matchedTrackIndices = mutableSetOf<Int>()
-        val matchedDetectionIndices = mutableSetOf<Int>()
-        val assignments = mutableListOf<Pair<Int, Int>>()
+        val matchedDetections = BooleanArray(detections.size)
+        val detectionByTrackIndex = IntArray(tracks.size) { -1 }
 
         while (true) {
             var bestTrackIndex = -1
@@ -41,13 +38,16 @@ class VehicleTracker(
             var bestIou = minIouToMatch
 
             for (trackIndex in tracks.indices) {
-                if (trackIndex in matchedTrackIndices) continue
+                if (detectionByTrackIndex[trackIndex] != -1) continue
 
                 val track = tracks[trackIndex]
                 for (detectionIndex in detections.indices) {
-                    if (detectionIndex in matchedDetectionIndices) continue
+                    if (matchedDetections[detectionIndex]) continue
 
-                    val iou = intersectionOverUnion(track.bounds, detections[detectionIndex].bounds)
+                    val iou = intersectionOverUnion(
+                        track.detection.bounds,
+                        detections[detectionIndex].bounds
+                    )
                     if (iou > bestIou) {
                         bestIou = iou
                         bestTrackIndex = trackIndex
@@ -60,21 +60,23 @@ class VehicleTracker(
                 break
             }
 
-            matchedTrackIndices += bestTrackIndex
-            matchedDetectionIndices += bestDetectionIndex
-            assignments += bestTrackIndex to bestDetectionIndex
+            matchedDetections[bestDetectionIndex] = true
+            detectionByTrackIndex[bestTrackIndex] = bestDetectionIndex
         }
 
         val updatedTracks = mutableListOf<TrackState>()
 
-        assignments.sortedBy { it.first }.forEach { (trackIndex, detectionIndex) ->
+        for (trackIndex in tracks.indices) {
+            val detectionIndex = detectionByTrackIndex[trackIndex]
+            if (detectionIndex == -1) continue
+
             val track = tracks[trackIndex]
             track.update(detections[detectionIndex], frameResult.timestamp, historySize)
             updatedTracks.add(track)
         }
 
         for (trackIndex in tracks.indices) {
-            if (trackIndex in matchedTrackIndices) continue
+            if (detectionByTrackIndex[trackIndex] != -1) continue
 
             val track = tracks[trackIndex]
             track.missedFrames += 1
@@ -84,7 +86,7 @@ class VehicleTracker(
         }
 
         for (detectionIndex in detections.indices) {
-            if (detectionIndex in matchedDetectionIndices) continue
+            if (matchedDetections[detectionIndex]) continue
 
             updatedTracks.add(
                 TrackState.create(
@@ -109,11 +111,9 @@ class VehicleTracker(
     }
 }
 
-private data class TrackState(
+private class TrackState(
     val id: Int,
-    var bounds: RectF,
-    var label: String,
-    var confidence: Float,
+    var detection: VehicleDetection,
     var missedFrames: Int = 0,
     var lastTimestamp: Long,
     private val areaHistory: ArrayDeque<Float> = ArrayDeque(),
@@ -127,9 +127,7 @@ private data class TrackState(
         ): TrackState {
             return TrackState(
                 id = id,
-                bounds = RectF(detection.bounds),
-                label = detection.label,
-                confidence = detection.confidence,
+                detection = detection,
                 lastTimestamp = timestamp,
             ).apply {
                 appendArea(area(), historySize)
@@ -138,9 +136,7 @@ private data class TrackState(
     }
 
     fun update(detection: VehicleDetection, timestamp: Long, historySize: Int) {
-        bounds = RectF(detection.bounds)
-        label = detection.label
-        confidence = detection.confidence
+        this.detection = detection
         missedFrames = 0
         lastTimestamp = timestamp
         appendArea(area(), historySize)
@@ -149,9 +145,7 @@ private data class TrackState(
     fun toTrackedVehicle(): TrackedVehicle {
         return TrackedVehicle(
             id = id,
-            bounds = RectF(bounds),
-            label = label,
-            confidence = confidence,
+            detection = detection,
             area = area(),
             lastTimestamp = lastTimestamp,
             areaHistory = areaHistory.toList(),
@@ -166,11 +160,14 @@ private data class TrackState(
     }
 
     private fun area(): Float {
-        return max(0f, bounds.width()) * max(0f, bounds.height())
+        return max(
+            0f,
+            detection.bounds.width) * max(0f, detection.bounds.height
+            )
     }
 }
 
-private fun intersectionOverUnion(first: RectF, second: RectF): Float {
+private fun intersectionOverUnion(first: Rect, second: Rect): Float {
     val left = maxOf(first.left, second.left)
     val top = maxOf(first.top, second.top)
     val right = minOf(first.right, second.right)
@@ -185,6 +182,6 @@ private fun intersectionOverUnion(first: RectF, second: RectF): Float {
     return if (union <= 0f) 0f else intersection / union
 }
 
-private fun rectArea(rect: RectF): Float {
-    return max(0f, rect.width()) * max(0f, rect.height())
+private fun rectArea(rect: Rect): Float {
+    return max(0f, rect.width) * max(0f, rect.height)
 }

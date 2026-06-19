@@ -51,11 +51,11 @@ fun VehicleOverlay(
 
         frame.trackedVehicles.forEach { vehicle ->
             val highlight = trackColor(vehicle.id)
-            val left = vehicle.bounds.left * scaleX
-            val top = vehicle.bounds.top * scaleY
-            val right = vehicle.bounds.right * scaleX
-            val bottom = vehicle.bounds.bottom * scaleY
-            val label = "${vehicle.label} #${vehicle.id} ${(vehicle.confidence * 100).roundToInt()}%"
+            val left = vehicle.detection.bounds.left * scaleX
+            val top = vehicle.detection.bounds.top * scaleY
+            val right = vehicle.detection.bounds.right * scaleX
+            val bottom = vehicle.detection.bounds.bottom * scaleY
+            val label = "${vehicle.detection.label} #${vehicle.id} ${(vehicle.detection.confidence * 100).roundToInt()}%"
 
             drawRect(
                 color = highlight,

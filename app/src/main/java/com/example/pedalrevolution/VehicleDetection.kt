@@ -3,7 +3,7 @@ package com.example.pedalrevolution
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Matrix
-import android.graphics.RectF
+import androidx.compose.ui.geometry.Rect
 import android.util.Log
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageProxy
@@ -21,10 +21,9 @@ private const val SCORE_THRESHOLD = 0.45f
 private const val MAX_RESULTS = 10
 
 private val VEHICLE_LABELS = setOf("car", "bus", "motorcycle", "motorbike", "truck")
-private val IGNORE_LABELS = setOf("bicycle")
 
 data class VehicleDetection(
-    val bounds: RectF,
+    val bounds: Rect,
     val label: String,
     val confidence: Float,
 )
@@ -143,15 +142,13 @@ private fun Detection.toVehicleDetection(): VehicleDetection? {
     val category = categories().maxByOrNull { it.score() } ?: return null
     val label = (category.displayName().ifBlank { category.categoryName() }).lowercase(Locale.US)
 
-    if (label in IGNORE_LABELS) {
-        return null
-    }
     if (label !in VEHICLE_LABELS) {
         return null
     }
 
+    val box = boundingBox()
     return VehicleDetection(
-        bounds = RectF(boundingBox()),
+        bounds = Rect(box.left, box.top, box.right, box.bottom),
         label = label,
         confidence = category.score(),
     )
