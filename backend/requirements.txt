@@ -1,0 +1,10 @@
+fastapi
+uvicorn
+pydantic
+requests
+ultralytics
+opencv-python
+pandas
+numpy
+tqdm
+mediapipe

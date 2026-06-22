@@ -31,3 +31,25 @@ Over time, those events can turn into points, streaks, and friendly competition.
 - [ ] 7. Add a social feature to compare with friends.
 - [ ] 8. Collect data to help Ido.
 - [ ] 9. Sell said data to data-brokers and retire early.
+
+## Benchmarks
+
+Below is the benchmarking result of the object detection models available in the app's assets folder (`app/src/main/assets`). 
+
+The models were evaluated frame-by-frame on a test video against the largest ground truth model (`yolo26x.pt`) with an IoU threshold of 0.3 and a score confidence threshold of 0.45.
+
+### Results Table
+
+| Model                     |   TP |   FP |   FN |   Precision |   Recall |   F1-Score |   Latency (ms) |   Speed (FPS) |
+|:--------------------------|-----:|-----:|-----:|------------:|---------:|-----------:|---------------:|--------------:|
+| efficientdet-lite0.tflite |   20 |   29 |   92 |      0.4082 |   0.1786 |     0.2484 |          37.94 |         26.36 |
+| yolo26n.pt                |   24 |    6 |   88 |      0.8    |   0.2143 |     0.338  |          15.22 |         65.69 |
+| yolo26n_float16.tflite    |   22 |    6 |   90 |      0.7857 |   0.1964 |     0.3143 |          76.11 |         13.14 |
+| yolo26n_float32.tflite    |   22 |    6 |   90 |      0.7857 |   0.1964 |     0.3143 |          75.95 |         13.17 |
+| yolo26x.pt                |   75 |    0 |   37 |      1      |   0.6696 |     0.8021 |          36.34 |         27.52 |
+| yolo26x_float16.tflite    |   68 |    1 |   44 |      0.9855 |   0.6071 |     0.7514 |        2047.87 |          0.49 |
+| yolo26x_float32.tflite    |   68 |    1 |   44 |      0.9855 |   0.6071 |     0.7514 |        2132.53 |          0.47 |
+
+### Performance Visualization
+
+![Detection Model Benchmark Visualization](docs/benchmark_plot.png)

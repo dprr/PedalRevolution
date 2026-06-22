@@ -39,32 +39,45 @@ class MainActivity : ComponentActivity() {
 @Composable
 private fun PedalRevolutionApp() {
     val context = LocalContext.current
-    var hasCameraPermission by remember {
+    var permissionsGranted by remember {
         mutableStateOf(
-            ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) ==
-                PackageManager.PERMISSION_GRANTED
+            ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED &&
+            ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
         )
     }
 
     val permissionLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestPermission()
-    ) { granted ->
-        hasCameraPermission = granted
+        contract = ActivityResultContracts.RequestMultiplePermissions()
+    ) { results ->
+        permissionsGranted = results[Manifest.permission.CAMERA] == true &&
+                             results[Manifest.permission.ACCESS_FINE_LOCATION] == true
     }
 
     LaunchedEffect(Unit) {
-        if (!hasCameraPermission) {
-            permissionLauncher.launch(Manifest.permission.CAMERA)
+        if (!permissionsGranted) {
+            permissionLauncher.launch(
+                arrayOf(
+                    Manifest.permission.CAMERA,
+                    Manifest.permission.ACCESS_FINE_LOCATION,
+                    Manifest.permission.ACCESS_COARSE_LOCATION
+                )
+            )
         }
     }
 
     Surface(modifier = Modifier.fillMaxSize()) {
-        if (hasCameraPermission) {
+        if (permissionsGranted) {
             VehicleCameraScreen()
         } else {
             PermissionScreen(
                 onRequestPermission = {
-                    permissionLauncher.launch(Manifest.permission.CAMERA)
+                    permissionLauncher.launch(
+                        arrayOf(
+                            Manifest.permission.CAMERA,
+                            Manifest.permission.ACCESS_FINE_LOCATION,
+                            Manifest.permission.ACCESS_COARSE_LOCATION
+                        )
+                    )
                 }
             )
         }

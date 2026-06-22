@@ -22,7 +22,14 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import java.util.concurrent.Executors
+import android.annotation.SuppressLint
+import com.google.android.gms.location.LocationServices
+import com.google.android.gms.location.LocationRequest
+import com.google.android.gms.location.Priority
+import com.google.android.gms.location.LocationCallback
+import com.google.android.gms.location.LocationResult
 
+@SuppressLint("MissingPermission")
 @Composable
 fun VehicleCameraScreen() {
     val context = LocalContext.current
@@ -52,6 +59,27 @@ fun VehicleCameraScreen() {
     var previewView by remember { mutableStateOf<PreviewView?>(null) }
     var cameraProvider by remember { mutableStateOf<ProcessCameraProvider?>(null) }
     var frameResult by remember { mutableStateOf<TrackedVehicleFrameResult?>(null) }
+    var currentLocation by remember { mutableStateOf<android.location.Location?>(null) }
+
+    val apiService = remember { DetectionApiService.create() }
+    val fusedLocationClient = remember(context) { LocationServices.getFusedLocationProviderClient(context) }
+
+    DisposableEffect(fusedLocationClient) {
+        val locationRequest = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 1000L).build()
+        val callback = object : LocationCallback() {
+            override fun onLocationResult(result: LocationResult) {
+                result.lastLocation?.let { currentLocation = it }
+            }
+        }
+        try {
+            fusedLocationClient.requestLocationUpdates(locationRequest, mainExecutor, callback)
+        } catch (e: SecurityException) {
+            // Ignore if missing permissions
+        }
+        onDispose {
+            fusedLocationClient.removeLocationUpdates(callback)
+        }
+    }
 
     Surface(modifier = Modifier.fillMaxSize()) {
         Box(modifier = Modifier.fillMaxSize()) {
@@ -101,7 +129,7 @@ fun VehicleCameraScreen() {
                     .also { useCase ->
                         useCase.setAnalyzer(
                             cameraExecutor,
-                            VehicleFrameAnalyzer(detector, tracker) { result ->
+                            VehicleFrameAnalyzer(detector, tracker, apiService, { currentLocation }) { result ->
                                 mainExecutor.execute {
                                     frameResult = result
                                 }

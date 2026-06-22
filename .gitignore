@@ -12,3 +12,25 @@ build/
 *.keystore
 *.log
 prompts/
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+.python-version
+uv.lock
+
+# IDEs
+.vscode/
+
+# Databases
+*.db
+
+# Frontend
+node_modules/
+dist/
+
+# Models
+*.pt
+*.tflite
+!app/src/main/assets/efficientdet-lite0.tflite

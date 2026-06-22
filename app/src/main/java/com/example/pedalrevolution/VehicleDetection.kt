@@ -14,6 +14,15 @@ import com.google.mediapipe.tasks.vision.core.RunningMode
 import com.google.mediapipe.tasks.vision.objectdetector.ObjectDetector
 import java.util.Locale
 import kotlin.math.max
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import okhttp3.OkHttpClient
+import okhttp3.logging.HttpLoggingInterceptor
+import retrofit2.Retrofit
+import retrofit2.converter.kotlinx.serialization.asConverterFactory
+import kotlinx.serialization.json.Json
+import okhttp3.MediaType.Companion.toMediaType
 
 private const val TAG = "VehicleDetect"
 private const val MODEL_FILE = "efficientdet-lite0.tflite"
@@ -96,11 +105,42 @@ class MediaPipeVehicleDetector(context: Context) : VehicleDetector {
 class VehicleFrameAnalyzer(
     private val detector: VehicleDetector,
     private val tracker: VehicleTracker,
+    private val apiService: DetectionApiService,
+    private val locationProvider: () -> android.location.Location?,
     private val onFrameResult: (TrackedVehicleFrameResult) -> Unit,
 ) : ImageAnalysis.Analyzer {
+    private val scope = CoroutineScope(Dispatchers.IO)
+
     override fun analyze(imageProxy: ImageProxy) {
         try {
             val frameResult = detector.detect(imageProxy)
+            
+            // Send detections to cloud
+            if (frameResult.detections.isNotEmpty()) {
+                val loc = locationProvider()
+                val requests = frameResult.detections.map { 
+                    DetectionRequest(
+                        timestamp_ms = frameResult.timestamp,
+                        label = it.label,
+                        confidence = it.confidence,
+                        x_min = it.bounds.left / frameResult.imageWidth,
+                        y_min = it.bounds.top / frameResult.imageHeight,
+                        x_max = it.bounds.right / frameResult.imageWidth,
+                        y_max = it.bounds.bottom / frameResult.imageHeight,
+                        latitude = loc?.latitude,
+                        longitude = loc?.longitude,
+                        altitude = if (loc?.hasAltitude() == true) loc.altitude else null
+                    )
+                }
+                scope.launch {
+                    try {
+                        apiService.sendDetections(requests)
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Failed to send detections", e)
+                    }
+                }
+            }
+
             val trackedFrameResult = tracker.update(frameResult)
             Log.d(
                 TAG,
