@@ -35,8 +35,14 @@ android {
         compose = true
     }
     packaging {
+        jniLibs {
+            useLegacyPackaging = true
+        }
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
+        }
+        dex {
+            useLegacyPackaging = true
         }
     }
     compileOptions {
@@ -57,6 +63,7 @@ dependencies {
     implementation(libs.androidx.camera.view)
     implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.mediapipe.tasks.vision)
+    implementation(libs.litert)
     implementation(libs.material)
     implementation(libs.retrofit)
     implementation(libs.retrofit.converter.kotlinx.serialization)

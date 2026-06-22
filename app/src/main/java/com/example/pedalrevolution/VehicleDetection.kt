@@ -12,6 +12,10 @@ import com.google.mediapipe.tasks.components.containers.Detection
 import com.google.mediapipe.tasks.core.BaseOptions
 import com.google.mediapipe.tasks.vision.core.RunningMode
 import com.google.mediapipe.tasks.vision.objectdetector.ObjectDetector
+import java.io.FileInputStream
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
+import java.nio.channels.FileChannel
 import java.util.Locale
 import kotlin.math.max
 import kotlinx.coroutines.CoroutineScope
@@ -19,18 +23,33 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
+import org.tensorflow.lite.Interpreter
 import retrofit2.Retrofit
 import retrofit2.converter.kotlinx.serialization.asConverterFactory
 import kotlinx.serialization.json.Json
 import okhttp3.MediaType.Companion.toMediaType
 
 private const val TAG = "VehicleDetect"
-private const val MODEL_FILE = "efficientdet-lite0.tflite"
+private const val YOLO_MODEL_FILE = "yolo26n_float32.tflite"
+private const val MEDIAPIPE_MODEL_FILE = "efficientdet-lite0.tflite"
 private const val SCORE_THRESHOLD = 0.45f
 private const val MAX_RESULTS = 10
 
-private val VEHICLE_LABELS = setOf("car", "bus", "motorcycle", "motorbike", "truck")
-private val IGNORE_LABELS = setOf("bicycle")
+private val VEHICLE_LABELS = setOf("car", "bus", "motorcycle", "motorbike", "truck", "person", "bicycle")
+private val IGNORE_LABELS = setOf("book")
+
+private val COCO_LABELS = listOf(
+    "person", "bicycle", "car", "motorcycle", "airplane", "bus", "train", "truck", "boat",
+    "traffic light", "fire hydrant", "stop sign", "parking meter", "bench", "bird", "cat",
+    "dog", "horse", "sheep", "cow", "elephant", "bear", "zebra", "giraffe", "backpack",
+    "umbrella", "handbag", "tie", "suitcase", "frisbee", "skis", "snowboard", "sports ball",
+    "kite", "baseball bat", "baseball glove", "skateboard", "surfboard", "tennis racket",
+    "bottle", "wine glass", "cup", "fork", "knife", "spoon", "bowl", "banana", "apple",
+    "sandwich", "orange", "broccoli", "carrot", "hot dog", "pizza", "donut", "cake",
+    "chair", "couch", "potted plant", "bed", "dining table", "toilet", "tv", "laptop",
+    "mouse", "remote", "keyboard", "cell phone", "microwave", "oven", "toaster", "sink",
+    "refrigerator", "book", "clock", "vase", "scissors", "teddy bear", "hair drier", "toothbrush"
+)
 
 data class VehicleDetection(
     val bounds: RectF,
@@ -50,13 +69,109 @@ interface VehicleDetector : AutoCloseable {
     fun detect(imageProxy: ImageProxy): VehicleFrameResult
 }
 
+class YoloVehicleDetector(context: Context) : VehicleDetector {
+    private val interpreter: Interpreter
+    private val inputBuffer: ByteBuffer
+    private val outputBuffer: Array<Array<FloatArray>>
+    private val intValues = IntArray(640 * 640)
+
+    init {
+        val model = context.assets.openFd(YOLO_MODEL_FILE).use { fd ->
+            FileInputStream(fd.fileDescriptor).channel.map(
+                FileChannel.MapMode.READ_ONLY,
+                fd.startOffset,
+                fd.declaredLength
+            )
+        }
+        interpreter = Interpreter(model)
+        inputBuffer = ByteBuffer.allocateDirect(1 * 640 * 640 * 3 * 4).apply {
+            order(ByteOrder.nativeOrder())
+        }
+        // YOLOv10 output is [1, 300, 6]
+        outputBuffer = Array(1) { Array(300) { FloatArray(6) } }
+    }
+
+    override fun detect(imageProxy: ImageProxy): VehicleFrameResult {
+        val rotationDegrees = imageProxy.imageInfo.rotationDegrees
+        val bitmap = imageProxy.toBitmap()
+        val rotatedBitmap = bitmap.rotate(rotationDegrees)
+        if (rotatedBitmap !== bitmap) {
+            bitmap.recycle()
+        }
+
+        val scaledBitmap = Bitmap.createScaledBitmap(rotatedBitmap, 640, 640, true)
+
+        // Preprocess
+        scaledBitmap.getPixels(intValues, 0, 640, 0, 0, 640, 640)
+        inputBuffer.rewind()
+        for (pixel in intValues) {
+            inputBuffer.putFloat(((pixel shr 16) and 0xFF) / 255.0f)
+            inputBuffer.putFloat(((pixel shr 8) and 0xFF) / 255.0f)
+            inputBuffer.putFloat((pixel and 0xFF) / 255.0f)
+        }
+
+        // Run inference
+        interpreter.run(inputBuffer, outputBuffer)
+
+        // Postprocess
+        val detections = mutableListOf<VehicleDetection>()
+        val results = outputBuffer[0]
+        for (i in 0 until 300) {
+            val score = results[i][4]
+            if (score < SCORE_THRESHOLD) continue
+
+            val classIdx = results[i][5].toInt()
+            if (classIdx !in COCO_LABELS.indices) continue
+
+            val label = COCO_LABELS[classIdx].lowercase(Locale.US)
+            if (label !in VEHICLE_LABELS || label in IGNORE_LABELS) continue
+
+            // YOLOv10 output is normalized 0-640 (usually) or 0-1 depending on export
+            // Based on common Ultralytics TFLite exports, it's often 0-1 for boxes
+            val x1 = results[i][0] * rotatedBitmap.width
+            val y1 = results[i][1] * rotatedBitmap.height
+            val x2 = results[i][2] * rotatedBitmap.width
+            val y2 = results[i][3] * rotatedBitmap.height
+
+            detections.add(
+                VehicleDetection(
+                    bounds = RectF(x1, y1, x2, y2),
+                    label = label,
+                    confidence = score
+                )
+            )
+        }
+
+        if (scaledBitmap !== rotatedBitmap) {
+            scaledBitmap.recycle()
+        }
+
+        val timestamp = imageProxy.imageInfo.timestamp / 1_000_000L
+
+        val result = VehicleFrameResult(
+            imageWidth = rotatedBitmap.width,
+            imageHeight = rotatedBitmap.height,
+            rotationDegrees = rotationDegrees,
+            timestamp = timestamp,
+            detections = detections
+        )
+
+        rotatedBitmap.recycle()
+        return result
+    }
+
+    override fun close() {
+        interpreter.close()
+    }
+}
+
 class MediaPipeVehicleDetector(context: Context) : VehicleDetector {
     private val objectDetector = ObjectDetector.createFromOptions(
         context,
         ObjectDetector.ObjectDetectorOptions.builder()
             .setBaseOptions(
                 BaseOptions.builder()
-                    .setModelAssetPath(MODEL_FILE)
+                    .setModelAssetPath(MEDIAPIPE_MODEL_FILE)
                     .build()
             )
             .setRunningMode(RunningMode.VIDEO)
