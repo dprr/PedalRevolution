@@ -16,21 +16,30 @@ Over time, those events can turn into points, streaks, and friendly competition.
 - Native Android app written in Kotlin.
 - Jetpack Compose for the UI.
 - CameraX for live camera preview and frame analysis.
-- Computer vision for car detection and later tracking.
-- Prefer on-device processing for low latency, cost and future-proof.
+- **LiteRT (formerly TensorFlow Lite)** for high-performance on-device car detection (**YOLOv10**).
+- **On-device tracking** and state estimation.
+- **Python-based backend** (FastAPI) for detection logging and a React-based dashboard for visualization.
+- **16 KB page size support** for modern Android 15+ compatibility.
 
 ## Roadmap
 
-- [ ] 0. Pick a good name
+- [x] 0. Pick a good name
 - [x] 1. Create a minimal Android/Kotlin CameraX app.
 - [x] 2. Add a live camera preview.
 - [x] 3. Add frame analysis.
-- [x] 4. Add a car detector, probably TensorFlow Lite or ML Kit object detection.
-- [ ] 5. Add simple tracking and counters.
+- [x] 4. Add a car detector (YOLOv10 via LiteRT).
+- [x] 5. Add simple tracking and counters.
 - [ ] 6. Add an arcade-style overlay with effects like "combo" when passing multiple cars in a short time.
 - [ ] 7. Add a social feature to compare with friends.
-- [ ] 8. Collect data to help Ido.
+- [x] 8. Collect data to help Ido (Backend integration).
 - [ ] 9. Sell said data to data-brokers and retire early.
+
+## TODOs
+
+- [ ] **Improve Tracking**: Implement a more robust tracking algorithm (e.g., Kalman Filter or Sort) to handle occlusions and fast movement.
+- [ ] **Efficient Backend Sync**: Shift from sending raw per-frame detections to sending summarized tracked objects to the server to reduce bandwidth.
+- [ ] **Model Validation**: Benchmark additional models and validate performance across a wider variety of test videos (different lighting, weather, etc.).
+- [ ] **Emulator Testing**: Add a script or guide to simulate moving GPS locations in the emulator for better field-testing.
 
 ## Benchmarks
 
@@ -53,3 +62,4 @@ The models were evaluated frame-by-frame on a test video against the largest gro
 ### Performance Visualization
 
 ![Detection Model Benchmark Visualization](docs/benchmark_plot.png)
+
