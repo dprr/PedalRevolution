@@ -63,3 +63,9 @@ The models were evaluated frame-by-frame on a test video against the largest gro
 
 ![Detection Model Benchmark Visualization](docs/benchmark_plot.png)
 
+
+to run emulator with specific video:
+```
+Android/Sdk/emulator/emulator -avd Medium_Phone -camera-back videofile:/home/yuval/Downloads/IMG_4376.mp4
+```
+
