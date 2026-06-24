@@ -39,6 +39,7 @@ def run_benchmark(video_path, model_path, gt_model_path, skip=1):
     recall = float(re.search(r"Recall:\s+([\d.]+)", stdout).group(1))
     f1 = float(re.search(r"F1-Score:\s+([\d.]+)", stdout).group(1))
     latency = float(re.search(r"Avg Latency:\s+([\d.]+)\s+ms", stdout).group(1))
+    ref_latency = float(re.search(r"Ref Latency:\s+([\d.]+)\s+ms", stdout).group(1))
     fps = float(re.search(r"FPS:\s+([\d.]+)", stdout).group(1))
     
     return {
@@ -50,6 +51,7 @@ def run_benchmark(video_path, model_path, gt_model_path, skip=1):
         "Recall": recall,
         "F1-Score": f1,
         "Latency (ms)": latency,
+        "Ref Latency (ms)": ref_latency,
         "Speed (FPS)": fps
     }
 

@@ -349,7 +349,8 @@ def main():
     # ── Process video ─────────────────────────────────────────────────
     import time
     inference_times = []
-    
+    ref_inference_times = []
+
     cap = cv2.VideoCapture(args.video)
     fps = cap.get(cv2.CAP_PROP_FPS)
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
@@ -381,12 +382,14 @@ def main():
             online_dets = run_mediapipe(frame_rgb, online_detector, timestamp_ms)
         inference_times.append(time.perf_counter() - t0)
 
+        t_ref0 = time.perf_counter()
         if is_rfdetr_ref:
             gt_dets = run_rfdetr(frame_bgr, ref_model, conf=args.score)
         elif is_onnx_ref:
             gt_dets = run_onnx(frame_bgr, ref_model, conf=args.score)
         else:
             gt_dets = run_yolo(frame_bgr, ref_model, conf=args.score)
+        ref_inference_times.append(time.perf_counter() - t_ref0)
 
         m = match_frame(online_dets, gt_dets, args.iou)
         total_tp += m.tp
@@ -414,6 +417,9 @@ def main():
     mean_latency_ms = mean_latency * 1000
     throughput_fps = 1.0 / mean_latency if mean_latency > 0 else 0
 
+    mean_ref_latency = np.mean(ref_inference_times) if ref_inference_times else 0
+    mean_ref_latency_ms = mean_ref_latency * 1000
+
     print()
     print("═══════════════════════════════════════")
     print("  Offline Detector Benchmark Report")
@@ -432,6 +438,7 @@ def main():
     print(f"  Recall:           {recall:.4f}")
     print(f"  F1-Score:         {f1:.4f}")
     print(f"  Avg Latency:      {mean_latency_ms:.2f} ms")
+    print(f"  Ref Latency:      {mean_ref_latency_ms:.2f} ms")
     print(f"  FPS:              {throughput_fps:.2f}")
     print("═══════════════════════════════════════")
 
