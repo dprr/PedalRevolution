@@ -16,7 +16,9 @@ Over time, those events can turn into points, streaks, and friendly competition.
 - Native Android app written in Kotlin.
 - Jetpack Compose for the UI.
 - CameraX for live camera preview and frame analysis.
-- **LiteRT (formerly TensorFlow Lite)** for high-performance on-device car detection (**YOLOv10**).
+- **ONNX Runtime** for high-performance on-device car detection (**YOLOv10**).
+- **LiteRT (formerly TensorFlow Lite)** as an alternative inference engine.
+- **RF-DETR** (2XL version) used as the ground truth reference for offline benchmarking.
 - **On-device tracking** and state estimation.
 - **Python-based backend** (FastAPI) for detection logging and a React-based dashboard for visualization.
 - **16 KB page size support** for modern Android 15+ compatibility.
@@ -27,7 +29,7 @@ Over time, those events can turn into points, streaks, and friendly competition.
 - [x] 1. Create a minimal Android/Kotlin CameraX app.
 - [x] 2. Add a live camera preview.
 - [x] 3. Add frame analysis.
-- [x] 4. Add a car detector (YOLOv10 via LiteRT).
+- [x] 4. Add a car detector (YOLOv10 via ONNX Runtime & LiteRT).
 - [x] 5. Add simple tracking and counters.
 - [ ] 6. Add an arcade-style overlay with effects like "combo" when passing multiple cars in a short time.
 - [ ] 7. Add a social feature to compare with friends.
@@ -45,27 +47,25 @@ Over time, those events can turn into points, streaks, and friendly competition.
 
 Below is the benchmarking result of the object detection models available in the app's assets folder (`app/src/main/assets`). 
 
-The models were evaluated frame-by-frame on a test video against the largest ground truth model (`yolo26x.pt`) with an IoU threshold of 0.3 and a score confidence threshold of 0.45.
+The models were evaluated frame-by-frame on a test video against the largest ground truth model (`rfdetr_2xl`) with an IoU threshold of 0.3 and a score confidence threshold of 0.45.
 
 ### Results Table
 
 | Model                     |   TP |   FP |   FN |   Precision |   Recall |   F1-Score |   Latency (ms) |   Speed (FPS) |
 |:--------------------------|-----:|-----:|-----:|------------:|---------:|-----------:|---------------:|--------------:|
-| efficientdet-lite0.tflite |   20 |   29 |   92 |      0.4082 |   0.1786 |     0.2484 |          37.94 |         26.36 |
-| yolo26n.pt                |   24 |    6 |   88 |      0.8    |   0.2143 |     0.338  |          15.22 |         65.69 |
-| yolo26n_float16.tflite    |   22 |    6 |   90 |      0.7857 |   0.1964 |     0.3143 |          76.11 |         13.14 |
-| yolo26n_float32.tflite    |   22 |    6 |   90 |      0.7857 |   0.1964 |     0.3143 |          75.95 |         13.17 |
-| yolo26x.pt                |   75 |    0 |   37 |      1      |   0.6696 |     0.8021 |          36.34 |         27.52 |
-| yolo26x_float16.tflite    |   68 |    1 |   44 |      0.9855 |   0.6071 |     0.7514 |        2047.87 |          0.49 |
-| yolo26x_float32.tflite    |   68 |    1 |   44 |      0.9855 |   0.6071 |     0.7514 |        2132.53 |          0.47 |
+| efficientdet-lite0.tflite |  170 |    8 |  438 |      0.9551 |   0.2796 |     0.4326 |          35.35 |         28.29 |
+| yolo26n.onnx              |  251 |   13 |  357 |      0.9508 |   0.4128 |     0.5757 |          23.61 |         42.35 |
+| yolo26n.pt                |  257 |    4 |  351 |      0.9847 |   0.4227 |     0.5915 |          12.42 |         80.51 |
+| yolo26n_float32.tflite    |  268 |    6 |  340 |      0.9781 |   0.4408 |     0.6077 |          72.22 |         13.85 |
+| yolo26x.onnx              |  409 |   24 |  199 |      0.9446 |   0.6727 |     0.7858 |         339.26 |          2.95 |
+| yolo26x.pt                |  434 |   17 |  174 |      0.9623 |   0.7138 |     0.8196 |          26.34 |         37.96 |
+| yolo26x_float32.tflite    |  438 |   18 |  170 |      0.9605 |   0.7204 |     0.8233 |        1990.52 |          0.5  |
 
 ### Performance Visualization
 
 ![Detection Model Benchmark Visualization](docs/benchmark_plot.png)
 
-
 to run emulator with specific video:
 ```
-Android/Sdk/emulator/emulator -avd Medium_Phone -camera-back videofile:/home/yuval/Downloads/IMG_4376.mp4
+~/Android/Sdk/emulator/emulator -avd Medium_Phone -camera-back videofile:/home/yuval/Downloads/IMG_4376.mp4
 ```
-

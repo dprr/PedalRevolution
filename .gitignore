@@ -33,5 +33,8 @@ dist/
 # Models
 *.pt
 *.tflite
+*.onnx
+*.pth
 !app/src/main/assets/efficientdet-lite0.tflite
 !app/src/main/assets/yolo26n_float32.tflite
+!app/src/main/assets/yolo26n.onnx

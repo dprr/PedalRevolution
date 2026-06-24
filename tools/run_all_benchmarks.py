@@ -7,7 +7,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import numpy as np
 
-def run_benchmark(video_path, model_path, gt_model_path):
+def run_benchmark(video_path, model_path, gt_model_path, skip=1):
     print(f"\n==================================================")
     print(f"Running benchmark for online model: {os.path.basename(model_path)}")
     print(f"==================================================")
@@ -16,7 +16,8 @@ def run_benchmark(video_path, model_path, gt_model_path):
         "uv", "run", "python", "tools/benchmark.py",
         "--video", video_path,
         "--model", model_path,
-        "--yolo", gt_model_path
+        "--ref", gt_model_path,
+        "--skip", str(skip)
     ]
     
     # Run the command and capture output
@@ -53,12 +54,13 @@ def run_benchmark(video_path, model_path, gt_model_path):
     }
 
 def main():
-    video_path = "/home/yuval/Downloads/IMG_4459.mp4"
+    video_path = "/home/yuval/Downloads/test1.mp4"
     assets_dir = "/home/yuval/code/PedalRevolution/app/src/main/assets"
-    gt_model_path = os.path.join(assets_dir, "yolo26x.pt")
+    gt_model_path = "rfdetr_2xl"
+    skip = 20
     
     # Find all models in assets directory
-    model_patterns = ["*.tflite", "*.pt"]
+    model_patterns = ["*.tflite", "*.pt", "*.onnx"]
     model_paths = []
     for pattern in model_patterns:
         model_paths.extend(glob.glob(os.path.join(assets_dir, pattern)))
@@ -70,7 +72,7 @@ def main():
     
     results = []
     for model_path in model_paths:
-        res = run_benchmark(video_path, model_path, gt_model_path)
+        res = run_benchmark(video_path, model_path, gt_model_path, skip)
         if res:
             results.append(res)
             
@@ -108,7 +110,7 @@ def main():
     ax1.bar(x + width, df['F1-Score'], width, label='F1-Score', color=colors['F1-Score'])
     
     ax1.set_ylabel('Score (0.0 - 1.0)', fontsize=12, fontweight='bold')
-    ax1.set_title('Detection Accuracy Comparison (GT: yolo26x.pt)', fontsize=14, fontweight='bold', pad=15)
+    ax1.set_title('Detection Accuracy Comparison (GT: rfdetr_2xl)', fontsize=14, fontweight='bold', pad=15)
     ax1.set_xticks(x)
     ax1.set_xticklabels(df['Model'], rotation=15, ha='right', fontsize=10)
     ax1.set_ylim(0, 1.05)
@@ -161,7 +163,7 @@ def main():
 
 Below is the benchmarking result of the object detection models available in the app's assets folder (`app/src/main/assets`). 
 
-The models were evaluated frame-by-frame on a test video against the largest ground truth model (`yolo26x.pt`) with an IoU threshold of 0.3 and a score confidence threshold of 0.45.
+The models were evaluated frame-by-frame on a test video against the largest ground truth model (`rfdetr_2xl`) with an IoU threshold of 0.3 and a score confidence threshold of 0.45.
 
 ### Results Table
 

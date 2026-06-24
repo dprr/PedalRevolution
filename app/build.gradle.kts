@@ -64,6 +64,7 @@ dependencies {
     implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.mediapipe.tasks.vision)
     implementation(libs.litert)
+    implementation(libs.onnxruntime.android)
     implementation(libs.material)
     implementation(libs.retrofit)
     implementation(libs.retrofit.converter.kotlinx.serialization)

@@ -36,7 +36,8 @@ fun VehicleCameraScreen() {
     val lifecycleOwner = LocalLifecycleOwner.current
     val cameraProviderFuture = remember(context) { ProcessCameraProvider.getInstance(context) }
     val mainExecutor = remember(context) { ContextCompat.getMainExecutor(context) }
-    val detectorResult = remember(context) { runCatching { YoloVehicleDetector(context) } }
+    val detectorResult = remember(context) { runCatching { OnnxYoloVehicleDetector(context) } }
+//    val detectorResult = remember(context) { runCatching { YoloVehicleDetector(context) } }
 //    val detectorResult = remember(context) { runCatching { MediaPipeVehicleDetector(context) } }
 
     if (detectorResult.isFailure) {

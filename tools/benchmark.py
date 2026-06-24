@@ -10,6 +10,7 @@ This eliminates all timestamp/sync/resolution issues.
 import argparse
 import cv2
 import numpy as np
+import os
 from dataclasses import dataclass, field
 
 # Alias tflite_runtime to ai_edge_litert if tflite_runtime is not installed.
@@ -32,7 +33,20 @@ import mediapipe as mp
 from mediapipe.tasks import python as mp_python
 from mediapipe.tasks.python import vision as mp_vision
 
-VEHICLE_LABELS = {"car", "bus", "truck", "motorcycle", "motorbike"}
+try:
+    import rfdetr
+    from rfdetr.assets.coco_classes import COCO_CLASSES
+    RFDETR_AVAILABLE = True
+except ImportError:
+    RFDETR_AVAILABLE = False
+
+try:
+    import onnxruntime as ort
+    ONNX_AVAILABLE = True
+except ImportError:
+    ONNX_AVAILABLE = False
+
+VEHICLE_LABELS = {"car", "bus", "truck", "motorcycle", "motorbike", "bicycle"}
 
 @dataclass
 class Detection:
@@ -48,6 +62,19 @@ class FrameMetrics:
     tp: int = 0
     fp: int = 0
     fn: int = 0
+
+ASSETS_DIR = os.path.join(os.path.dirname(__file__), "../app/src/main/assets")
+
+def resolve_model_path(path: str) -> str:
+    if "rfdetr" in path.lower():
+        return path
+    if path.endswith(".onnx") or path.endswith(".pt") or path.endswith(".tflite"):
+        if os.path.exists(path):
+            return path
+        assets_path = os.path.join(ASSETS_DIR, path)
+        if os.path.exists(assets_path):
+            return assets_path
+    return path
 
 def calculate_iou(a: Detection, b: Detection) -> float:
     x1 = max(a.x_min, b.x_min)
@@ -109,6 +136,91 @@ def run_yolo(frame_bgr: np.ndarray, model, conf: float = None) -> list[Detection
         ))
     return detections
 
+def run_rfdetr(frame_bgr: np.ndarray, model, conf: float = None) -> list[Detection]:
+    """Run RF-DETR model."""
+    h, w = frame_bgr.shape[:2]
+    # rfdetr's predict usually takes a path or an image.
+    # It returns a supervision.Detections object.
+    # Note: run_rfdetr assumes frame_bgr is BGR but RF-DETR might expect RGB internally.
+    # Most modern libs handle this, but let's be safe if we need to convert.
+    frame_rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
+
+    # Passing the numpy array directly
+    results = model.predict(frame_rgb, threshold=conf or 0.25)
+
+    detections = []
+    for i in range(len(results)):
+        class_id = results.class_id[i]
+        label = COCO_CLASSES[class_id].lower()
+        if label not in VEHICLE_LABELS:
+            continue
+
+        box = results.xyxy[i]
+        detections.append(Detection(
+            label=label,
+            confidence=float(results.confidence[i]),
+            x_min=box[0] / w,
+            y_min=box[1] / h,
+            x_max=box[2] / w,
+            y_max=box[3] / h,
+        ))
+    return detections
+
+def run_onnx(frame_bgr: np.ndarray, session, conf: float = None) -> list[Detection]:
+    """Run YOLO ONNX model."""
+    h, w = frame_bgr.shape[:2]
+
+    # Preprocess: Resize to 640x640, BGR to RGB, normalize, HWC to CHW
+    img = cv2.resize(frame_bgr, (640, 640))
+    img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+    img = img.astype(np.float32) / 255.0
+    img = img.transpose(2, 0, 1) # CHW
+    img = np.expand_dims(img, axis=0) # NCHW
+
+    input_name = session.get_inputs()[0].name
+    outputs = session.run(None, {input_name: img})
+
+    # YOLOv10 output is [1, 300, 6] -> [x1, y1, x2, y2, score, class]
+    predictions = outputs[0][0]
+
+    detections = []
+    for pred in predictions:
+        score = pred[4]
+        if score < (conf or 0.25):
+            continue
+
+        class_idx = int(pred[5])
+        COCO_80 = [
+            "person", "bicycle", "car", "motorcycle", "airplane", "bus", "train", "truck", "boat",
+            "traffic light", "fire hydrant", "stop sign", "parking meter", "bench", "bird", "cat",
+            "dog", "horse", "sheep", "cow", "elephant", "bear", "zebra", "giraffe", "backpack",
+            "umbrella", "handbag", "tie", "suitcase", "frisbee", "skis", "snowboard", "sports ball",
+            "kite", "baseball bat", "baseball glove", "skateboard", "surfboard", "tennis racket",
+            "bottle", "wine glass", "cup", "fork", "knife", "spoon", "bowl", "banana", "apple",
+            "sandwich", "orange", "broccoli", "carrot", "hot dog", "pizza", "donut", "cake",
+            "chair", "couch", "potted plant", "bed", "dining table", "toilet", "tv", "laptop",
+            "mouse", "remote", "keyboard", "cell phone", "microwave", "oven", "toaster", "sink",
+            "refrigerator", "book", "clock", "vase", "scissors", "teddy bear", "hair drier", "toothbrush"
+        ]
+
+        if class_idx >= len(COCO_80):
+            continue
+
+        label = COCO_80[class_idx]
+        if label not in VEHICLE_LABELS:
+            continue
+
+        detections.append(Detection(
+            label=label,
+            confidence=float(score),
+            x_min=pred[0],
+            y_min=pred[1],
+            x_max=pred[2],
+            y_max=pred[3],
+        ))
+
+    return detections
+
 def match_frame(online: list[Detection], gt: list[Detection], iou_thresh: float) -> FrameMetrics:
     """Greedy IoU matching for a single frame."""
     matched_online = set()
@@ -134,12 +246,44 @@ def match_frame(online: list[Detection], gt: list[Detection], iou_thresh: float)
     fn = len(gt) - len(matched_gt)
     return FrameMetrics(tp=tp, fp=fp, fn=fn)
 
+def load_rfdetr_model(model_name_or_path: str):
+    """Dynamically load RF-DETR model based on name or path."""
+    if not RFDETR_AVAILABLE:
+        raise ImportError("rfdetr is not installed. Please install it with 'pip install rfdetr rfdetr-plus'.")
+
+    name = model_name_or_path.lower()
+    if "rfdetr_nano" in name:
+        from rfdetr import RFDETRNano
+        return RFDETRNano()
+    elif "rfdetr_small" in name:
+        from rfdetr import RFDETRSmall
+        return RFDETRSmall()
+    elif "rfdetr_medium" in name:
+        from rfdetr import RFDETRMedium
+        return RFDETRMedium()
+    elif "rfdetr_large" in name:
+        from rfdetr import RFDETRLarge
+        return RFDETRLarge()
+    elif "rfdetr_xl" in name:
+        from rfdetr_plus import RFDETRXLarge
+        return RFDETRXLarge()
+    elif "rfdetr_2xl" in name:
+        from rfdetr_plus import RFDETR2XLarge
+        return RFDETR2XLarge()
+    else:
+        # Fallback to generic loader if it's a path or unknown name
+        # RF-DETR models often use .pth or .pt, but we'll try RFDETRMedium as default if it's a generic .pt/pth
+        from rfdetr import RFDETRMedium
+        if model_name_or_path.endswith('.pth') or model_name_or_path.endswith('.pt'):
+             return RFDETRMedium(pretrain_weights=model_name_or_path)
+        return RFDETRMedium()
+
 def main():
     parser = argparse.ArgumentParser(description="Offline detector benchmark")
     parser.add_argument("--video", required=True, help="Path to test video")
     parser.add_argument("--model", default="efficientdet-lite0.tflite",
                         help="Path to the TFLite model used by the app")
-    parser.add_argument("--yolo", default="yolov10n.pt", help="YOLO model")
+    parser.add_argument("--ref", default="yolov10n.pt", help="Reference (GT) model")
     parser.add_argument("--iou", type=float, default=0.3, help="IoU threshold")
     parser.add_argument("--score", type=float, default=0.45,
                         help="Score threshold for the online detector")
@@ -147,11 +291,26 @@ def main():
                         help="Process every Nth frame (1=all)")
     args = parser.parse_args()
 
+    args.model = resolve_model_path(args.model)
+    args.ref = resolve_model_path(args.ref)
+
     # ── Initialise detectors ──────────────────────────────────────────
     is_yolo_online = False
+    is_rfdetr_online = False
+    is_onnx_online = False
     online_detector = None
 
-    if "yolo" in args.model.lower():
+    if "rfdetr" in args.model.lower():
+        is_rfdetr_online = True
+        print(f"Loading '{args.model}' as RF-DETR online model...")
+        online_detector = load_rfdetr_model(args.model)
+    elif args.model.lower().endswith(".onnx"):
+        if not ONNX_AVAILABLE:
+            raise ImportError("onnxruntime is not installed.")
+        is_onnx_online = True
+        print(f"Loading '{args.model}' as ONNX online model...")
+        online_detector = ort.InferenceSession(args.model)
+    elif "yolo" in args.model.lower() or args.model.lower().endswith(".pt"):
         is_yolo_online = True
     else:
         try:
@@ -175,7 +334,17 @@ def main():
         print(f"Loading '{args.model}' as YOLO online model...")
         online_detector = YOLO(args.model)
 
-    yolo_model = YOLO(args.yolo)
+    is_rfdetr_ref = "rfdetr" in args.ref.lower()
+    is_onnx_ref = args.ref.lower().endswith(".onnx")
+
+    if is_rfdetr_ref:
+        print(f"Loading '{args.ref}' as RF-DETR reference model...")
+        ref_model = load_rfdetr_model(args.ref)
+    elif is_onnx_ref:
+        print(f"Loading '{args.ref}' as ONNX reference model...")
+        ref_model = ort.InferenceSession(args.ref)
+    else:
+        ref_model = YOLO(args.ref)
 
     # ── Process video ─────────────────────────────────────────────────
     import time
@@ -201,14 +370,23 @@ def main():
         timestamp_ms = int((frame_idx / fps) * 1000)
 
         t0 = time.perf_counter()
-        if is_yolo_online:
+        if is_rfdetr_online:
+            online_dets = run_rfdetr(frame_bgr, online_detector, conf=args.score)
+        elif is_onnx_online:
+            online_dets = run_onnx(frame_bgr, online_detector, conf=args.score)
+        elif is_yolo_online:
             online_dets = run_yolo(frame_bgr, online_detector, conf=args.score)
         else:
             frame_rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
             online_dets = run_mediapipe(frame_rgb, online_detector, timestamp_ms)
         inference_times.append(time.perf_counter() - t0)
 
-        gt_dets = run_yolo(frame_bgr, yolo_model)
+        if is_rfdetr_ref:
+            gt_dets = run_rfdetr(frame_bgr, ref_model, conf=args.score)
+        elif is_onnx_ref:
+            gt_dets = run_onnx(frame_bgr, ref_model, conf=args.score)
+        else:
+            gt_dets = run_yolo(frame_bgr, ref_model, conf=args.score)
 
         m = match_frame(online_dets, gt_dets, args.iou)
         total_tp += m.tp
@@ -243,7 +421,7 @@ def main():
     print(f"  Video:            {args.video}")
     print(f"  Frames processed: {frames_processed}")
     print(f"  Online model:     {args.model}")
-    print(f"  GT model:         {args.yolo}")
+    print(f"  GT model:         {args.ref}")
     print(f"  IoU threshold:    {args.iou}")
     print(f"  Score threshold:  {args.score}")
     print("───────────────────────────────────────")
