@@ -46,8 +46,13 @@ fun VehicleOverlay(
         val frame = frameResult ?: return@Canvas
         if (frame.imageWidth <= 0 || frame.imageHeight <= 0) return@Canvas
 
-        val scaleX = size.width / frame.imageWidth.toFloat()
-        val scaleY = size.height / frame.imageHeight.toFloat()
+        val scale = minOf(
+            size.width / frame.imageWidth.toFloat(),
+            size.height / frame.imageHeight.toFloat(),
+        )
+
+        val imageLeft = (size.width - frame.imageWidth * scale) / 2f
+        val imageTop = (size.height - frame.imageHeight * scale) / 2f
         val statsLabel = "Active ${frame.activeTrackCount}  Seen ${frame.totalTrackCount}"
         val statsLeft = 16.dp.toPx()
         val statsTop = 16.dp.toPx()
@@ -75,10 +80,10 @@ fun VehicleOverlay(
 
         frame.trackedVehicles.forEach { vehicle ->
             val highlight = trackColor(vehicle.id)
-            val left = vehicle.detection.bounds.left * scaleX
-            val top = vehicle.detection.bounds.top * scaleY
-            val right = vehicle.detection.bounds.right * scaleX
-            val bottom = vehicle.detection.bounds.bottom * scaleY
+            val left = imageLeft + vehicle.detection.bounds.left * scale
+            val top = imageTop + vehicle.detection.bounds.top * scale
+            val right = imageLeft + vehicle.detection.bounds.right * scale
+            val bottom = imageTop + vehicle.detection.bounds.bottom * scale
             val label = "${vehicle.detection.label} #${vehicle.id} ${(vehicle.detection.confidence * 100).roundToInt()}%"
 
             drawRect(

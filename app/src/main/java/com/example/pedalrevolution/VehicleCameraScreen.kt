@@ -17,11 +17,14 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicBoolean
 
 @Composable
 fun VehicleCameraScreen() {
@@ -50,7 +53,10 @@ fun VehicleCameraScreen() {
     val cameraExecutor = remember { Executors.newSingleThreadExecutor() }
     val tracker = remember { VehicleTracker() }
     var previewView by remember { mutableStateOf<PreviewView?>(null) }
+    var previewSize by remember { mutableStateOf(IntSize.Zero) }
     var cameraProvider by remember { mutableStateOf<ProcessCameraProvider?>(null) }
+    var cameraAnalysis by remember { mutableStateOf<ImageAnalysis?>(null) }
+    val detectorDisposed = remember(detector) { AtomicBoolean(false) }
     var frameResult by remember { mutableStateOf<TrackedVehicleFrameResult?>(null) }
 
     Surface(modifier = Modifier.fillMaxSize()) {
@@ -58,11 +64,12 @@ fun VehicleCameraScreen() {
             AndroidView(
                 factory = { viewContext ->
                     PreviewView(viewContext).apply {
-                        scaleType = PreviewView.ScaleType.FILL_CENTER
+                        scaleType = PreviewView.ScaleType.FIT_CENTER
+                        setBackgroundColor(android.graphics.Color.BLACK)
                         previewView = this
                     }
                 },
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier.fillMaxSize().onSizeChanged { previewSize = it },
             )
 
             VehicleOverlay(
@@ -72,22 +79,51 @@ fun VehicleCameraScreen() {
         }
     }
 
-    DisposableEffect(detector) {
+    // Owns the detector and its worker for this screen.
+    DisposableEffect(detector, cameraExecutor) {
         onDispose {
-            detector.close()
+            detectorDisposed.set(true)
+
+            // Stop new frames before scheduling detector closure.
+            cameraAnalysis?.clearAnalyzer()
+            cameraProvider?.unbindAll()
+
+            // The current frame finishes before this task runs.
+            cameraExecutor.execute {
+                detector.close()
+            }
+
+            // Allow queued tasks, including close(), to finish.
+            cameraExecutor.shutdown()
         }
     }
 
-    DisposableEffect(previewView, lifecycleOwner, detector, tracker) {
+    // Owns the camera binding. This can restart when the preview size changes.
+    DisposableEffect(previewView, previewSize, lifecycleOwner, detector, tracker) {
         val view = previewView
-        if (view == null) {
+
+        if (view == null || previewSize.width == 0 || previewSize.height == 0) {
             onDispose { }
         } else {
+            val bindingDisposed = AtomicBoolean(false)
+            var boundProvider: ProcessCameraProvider? = null
+            var boundAnalysis: ImageAnalysis? = null
+
             val listener = Runnable {
-                val provider = runCatching { cameraProviderFuture.get() }.getOrNull() ?: return@Runnable
+                if (bindingDisposed.get() || detectorDisposed.get()) {
+                    return@Runnable
+                }
+
+                val provider = runCatching {
+                    cameraProviderFuture.get()
+                }.getOrNull() ?: return@Runnable
+
+                boundProvider = provider
                 cameraProvider = provider
 
-                val targetRotation = view.display?.rotation ?: android.view.Surface.ROTATION_0
+                val targetRotation =
+                    view.display?.rotation ?: android.view.Surface.ROTATION_0
+
                 val preview = androidx.camera.core.Preview.Builder()
                     .setTargetRotation(targetRotation)
                     .build()
@@ -95,19 +131,32 @@ fun VehicleCameraScreen() {
 
                 val analysis = ImageAnalysis.Builder()
                     .setTargetRotation(targetRotation)
-                    .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
-                    .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_RGBA_8888)
+                    .setBackpressureStrategy(
+                        ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST
+                    )
+                    .setOutputImageFormat(
+                        ImageAnalysis.OUTPUT_IMAGE_FORMAT_RGBA_8888
+                    )
                     .build()
-                    .also { useCase ->
-                        useCase.setAnalyzer(
-                            cameraExecutor,
-                            VehicleFrameAnalyzer(detector, tracker) { result ->
-                                mainExecutor.execute {
-                                    frameResult = result
-                                }
-                            }
-                        )
+
+                boundAnalysis = analysis
+                cameraAnalysis = analysis
+
+                val analyzer = VehicleFrameAnalyzer(detector, tracker) { result ->
+                    mainExecutor.execute {
+                        if (!bindingDisposed.get() && !detectorDisposed.get()) {
+                            frameResult = result
+                        }
                     }
+                }
+
+                analysis.setAnalyzer(cameraExecutor) { image ->
+                    if (bindingDisposed.get() || detectorDisposed.get()) {
+                        image.close()
+                    } else {
+                        analyzer.analyze(image)
+                    }
+                }
 
                 provider.unbindAll()
                 provider.bindToLifecycle(
@@ -121,14 +170,10 @@ fun VehicleCameraScreen() {
             cameraProviderFuture.addListener(listener, mainExecutor)
 
             onDispose {
-                cameraProvider?.unbindAll()
+                bindingDisposed.set(true)
+                boundAnalysis?.clearAnalyzer()
+                boundProvider?.unbindAll()
             }
-        }
-    }
-
-    DisposableEffect(Unit) {
-        onDispose {
-            cameraExecutor.shutdown()
         }
     }
 }
